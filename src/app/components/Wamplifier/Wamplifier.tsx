@@ -23,6 +23,7 @@ import LoadingBox from "../LoadingBox/LoadingBox";
 import { useAtom } from "jotai";
 import CompleteToggle from "../CompleteToggle/CompleteToggle";
 import {
+  getActiveAssessments as getAssessmentsSafely,
   getSubjectScore,
   hasManualFinalMark,
   isAutoComplete,
@@ -61,6 +62,7 @@ function Wamplifier({
 }) {
   const [, updateSubject] = useAtom(updateSubjectAtom);
   const [isLoading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
 
   const getActiveAssessmentSet = (subject: Subject) => {
     // for backwards compatibility
@@ -72,10 +74,12 @@ function Wamplifier({
       updateSubject({
         ...subject,
         activeStudyPeriod: 0,
-        assessmentSets: [{ period: "none", assessments: subject.assessments! }],
+        assessmentSets: [
+          { period: "none", assessments: subject.assessments ?? [] },
+        ],
       });
 
-      return { period: "none", assessments: subject.assessments! };
+      return { period: "none", assessments: subject.assessments ?? [] };
     }
 
     if (subject.activeStudyPeriod > subject.assessmentSets.length - 1) {
@@ -92,9 +96,13 @@ function Wamplifier({
   // loads subject assessments from API
   const onSubjectSelect = (subjectSelection: SearchResult) => {
     setLoading(true);
+    setLoadError("");
     axios
       .post("/api/getSubjectInfo", subjectSelection)
       .then((res) => {
+        if (!res.data?.assessmentSets?.length) {
+          throw new Error("No assessments came back for this subject.");
+        }
         updateSubject({
           ...res.data,
           id: subject.id,
@@ -106,6 +114,10 @@ function Wamplifier({
       .catch((error) => {
         console.error(error);
         setLoading(false);
+        setLoadError(
+          error?.response?.data?.error ??
+            "Couldn't load that subject. Check your connection and try again."
+        );
         document
           .querySelector(`#SubjectSearch--${subject.id} input`)
           ?.removeAttribute("disabled");
@@ -141,6 +153,64 @@ function Wamplifier({
   const complete = isSubjectComplete(subject);
   const auto = isAutoComplete(subject);
 
+  if (
+    !isLoading &&
+    subject.code != "" &&
+    getAssessmentsSafely(subject).length === 0
+  ) {
+    return (
+      <div
+        className={wamplifier.body + " panel"}
+        id={`Wamplifier--${subject.id}`}
+      >
+        <div className={wamplifier.header}>
+          <div className="fc">
+            <h2 className={wamplifier.title}>{subject.name}</h2>
+            <h3 className={wamplifier.code}>{subject.code}</h3>
+          </div>
+          <button className={wamplifier.close}>
+            <CloseIcon fontSize="medium" onClick={() => onDelete(subject.id)} />
+          </button>
+        </div>
+
+        <Divider />
+
+        <div className={wamplifier.contentEmpty}>
+          <p
+            style={{
+              padding: "var(--wamp-padding)",
+              color: "var(--n300)",
+              fontWeight: 400,
+              lineHeight: 1.5,
+            }}
+          >
+            {loadError ||
+              `The assessments for ${subject.code} didn’t load. The handbook may not list them yet, or it couldn’t be reached.`}
+          </p>
+          <button
+            className="swiper-no-swiping"
+            onClick={() =>
+              onSubjectSelect({ name: subject.name, code: subject.code })
+            }
+            style={{
+              margin: "0 var(--wamp-padding) var(--wamp-padding)",
+              padding: "0.5rem 1rem",
+              borderRadius: "6px",
+              border: "1px solid var(--a500)",
+              background: "none",
+              color: "var(--a500)",
+              fontFamily: "inherit",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={wamplifier.body + " panel"}
@@ -171,6 +241,17 @@ function Wamplifier({
 
       {(isLoading || subject.code == "") && (
         <div className={wamplifier.contentEmpty}>
+          {loadError && (
+            <p
+              style={{
+                padding: "var(--wamp-padding) var(--wamp-padding) 0",
+                color: "var(--bad100)",
+                fontWeight: 400,
+              }}
+            >
+              {loadError}
+            </p>
+          )}
           <LoadingBox isLoading={isLoading} rows={3} />
         </div>
       )}

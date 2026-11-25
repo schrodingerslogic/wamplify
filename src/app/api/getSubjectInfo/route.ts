@@ -3,25 +3,28 @@ import { JSDOM } from "jsdom";
 import { Assessment, AssessmentSet, SearchResult, Subject } from "../../types/types";
 import { NextResponse } from "next/server";
 
-export async function POST(req: Request, res: Response) {
+export async function POST(req: Request) {
   const request = await req.json();
 
-  const response = await getSubjectInfo(request);
+  const result = await getSubjectInfo(request);
 
-  return NextResponse.json(response);
+  if (!result.subject) {
+    return NextResponse.json({ error: result.error }, { status: result.status });
+  }
+
+  return NextResponse.json(result.subject);
 }
 
-async function fetchSubjectPage(url: string) {
-  const HTMLData = axios
-    .get(url)
-    .then((res: { data: any }) => res.data)
-    .catch((error: AxiosError) => {
-      console.error(error.toJSON());
-    });
-
-  const dom = new JSDOM(await HTMLData);
-
-  return dom.window.document;
+async function fetchSubjectPage(url: string): Promise<Document | null> {
+  try {
+    const res = await axios.get(url, { timeout: 15000 });
+    return new JSDOM(res.data).window.document;
+  } catch (error) {
+    // look for this line in Vercel > Logs: a status like 403/404, or a code like ECONNABORTED
+    const e = error as AxiosError;
+    console.error(`Handbook request failed (${e.response?.status ?? e.code}): ${url}`);
+    return null;
+  }
 }
 
 function extractData(document: Document) {
@@ -52,6 +55,7 @@ function getAssessments(table: Element): Array<Assessment> {
   const subjectInfo = table?.querySelectorAll("tbody tr");
   let totalWeight = 0;
   subjectInfo?.forEach((assessment) => {
+    if (assessment.querySelectorAll("td").length < 3) return;
     const assessmentItem = parseAssessment(assessment);
     if (totalWeight <= 100 - assessmentItem.weight) {
       assessmentItems.push(assessmentItem);
@@ -63,9 +67,9 @@ function getAssessments(table: Element): Array<Assessment> {
 
 function extractCredits(document: Document) {
   const creditTitle = document.querySelector(".header--course-and-subject__details")?.querySelectorAll("span");
-  const creditString = creditTitle ? creditTitle[1].innerHTML.split(" ") : ["12.5"];
-  const credits = creditString[creditString.length - 1];
-  return parseFloat(credits);
+  const creditString = creditTitle && creditTitle.length > 1 ? creditTitle[1].innerHTML.split(" ") : ["12.5"];
+  const credits = parseFloat(creditString[creditString.length - 1]);
+  return isNaN(credits) ? 12.5 : credits;
 }
 
 function parseAssessment(tableRow: Element): Assessment {
@@ -92,20 +96,41 @@ function parseTitle(title: Element): string {
   return sentences[0];
 }
 
-async function getSubjectInfo(subject: SearchResult): Promise<Subject> {
+async function getSubjectInfo(
+  subject: SearchResult
+): Promise<{ subject?: Subject; error?: string; status?: number }> {
   const year = new Date().getFullYear();
   const assessmentUrl = `https://handbook.unimelb.edu.au/${year}/subjects/${subject.code}/assessment`;
   const overviewUrl = `https://handbook.unimelb.edu.au/${year}/subjects/${subject.code}`;
-  const subjectOverview = await fetchSubjectPage(overviewUrl);
-  let assessmentSets = extractData(await fetchSubjectPage(assessmentUrl));
-  let credits = extractCredits(subjectOverview);
-  let result: Subject = {
-    name: subject.name,
-    code: subject.code,
-    activeStudyPeriod: 0,
-    assessmentSets: assessmentSets,
-    credits: credits,
-    targetScore: 50,
+  const [subjectOverview, assessmentPage] = await Promise.all([
+    fetchSubjectPage(overviewUrl),
+    fetchSubjectPage(assessmentUrl),
+  ]);
+
+  if (!assessmentPage) {
+    return {
+      status: 502,
+      error: `Couldn't reach the handbook to load ${subject.code}. Please try again.`,
+    };
+  }
+
+  const assessmentSets = extractData(assessmentPage).filter((set) => set.assessments.length > 0);
+  if (assessmentSets.length === 0) {
+    return {
+      status: 404,
+      error: `No assessments are listed for ${subject.code} in the ${year} handbook.`,
+    };
+  }
+
+  const credits = subjectOverview ? extractCredits(subjectOverview) : 12.5;
+  return {
+    subject: {
+      name: subject.name,
+      code: subject.code,
+      activeStudyPeriod: 0,
+      assessmentSets: assessmentSets,
+      credits: credits,
+      targetScore: 50,
+    },
   };
-  return result;
 }
