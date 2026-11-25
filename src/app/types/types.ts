@@ -23,6 +23,12 @@ export interface Subject {
   credits: number;
   assessments?: Assessment[]; // for backwards compatibility
   targetScore: number;
+  semesterId?: string; // which semester section this subject lives in
+}
+export interface Semester {
+  id: string;
+  name: string;
+  collapsed: boolean;
 }
 
 export interface SearchResult {

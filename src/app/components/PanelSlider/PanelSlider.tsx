@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { useState } from "react";
 import slider from "./slider.module.css";
 import Wamplifier from "../Wamplifier/Wamplifier";
+import SemesterHeader from "../SemesterHeader/SemesterHeader";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { FreeMode, Mousewheel } from "swiper/modules";
 import "swiper/css";
@@ -11,24 +12,35 @@ import {
   subjectsAtom,
   addSubjectAtom,
   removeSubjectAtom,
+  semestersAtom,
+  defaultSemesters,
+  resolveSemesterId,
+  addSemesterAtom,
+  updateSemesterAtom,
+  removeSemesterAtom,
 } from "@/app/types/store";
 import { useAtom } from "jotai";
 
 function PanelSlider() {
   const CREDITS_PER_UNIT = 12.5;
   const [mobile, setMobile] = useState(false);
-  const [subjectList, setSubjectList] = useAtom(subjectsAtom);
+  const [subjectList] = useAtom(subjectsAtom);
+  const [storedSemesters] = useAtom(semestersAtom);
   const [, addSubject] = useAtom(addSubjectAtom);
   const [, deleteSubject] = useAtom(removeSubjectAtom);
+  const [, addSemester] = useAtom(addSemesterAtom);
+  const [, updateSemester] = useAtom(updateSemesterAtom);
+  const [, deleteSemester] = useAtom(removeSemesterAtom);
 
-  const newSubject = () => {
-    addSubject();
-  };
+  // never render with zero semesters
+  const semesters =
+    storedSemesters.length > 0 ? storedSemesters : defaultSemesters;
 
   const removeSubject = (id: string) => {
     deleteSubject(id);
   };
 
+  // collapsed semesters still count towards the WAM prediction
   const getWamPrediction = (currWam: string, unitsCompleted: string) => {
     let totalPoints =
       parseFloat(currWam) * parseInt(unitsCompleted) * CREDITS_PER_UNIT;
@@ -65,6 +77,69 @@ function PanelSlider() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  // one header slide per semester, then its subjects and an "add subject"
+  // button. A minimised semester only shows its header.
+  const semesterSlides = semesters.flatMap((semester) => {
+    const semesterSubjects = subjectList.filter(
+      (subject) => resolveSemesterId(subject, semesters) === semester.id
+    );
+    const credits = semesterSubjects.reduce(
+      (total, subject) => total + subject.credits,
+      0
+    );
+
+    const slides = [
+      <SwiperSlide key={`${semester.id}-header`} className={slider.swiperSlide}>
+        <SemesterHeader
+          semester={semester}
+          subjectCount={semesterSubjects.length}
+          credits={credits}
+          canDelete={semesters.length > 1}
+          onToggle={() =>
+            updateSemester({ ...semester, collapsed: !semester.collapsed })
+          }
+          onRename={(name) => updateSemester({ ...semester, name })}
+          onDelete={() => deleteSemester(semester.id)}
+        />
+      </SwiperSlide>,
+    ];
+
+    if (!semester.collapsed) {
+      semesterSubjects.forEach((subject, index) => {
+        slides.push(
+          <SwiperSlide
+            key={subject.id ?? `${semester.id}-${index}`}
+            className={slider.swiperSlide}
+          >
+            <Wamplifier subject={subject} onDelete={removeSubject} />
+          </SwiperSlide>
+        );
+      });
+
+      slides.push(
+        <SwiperSlide key={`${semester.id}-add`} className={slider.swiperSlide}>
+          <div
+            className={`${slider.addContainer} ${
+              subjectList.length === 0 && semester.id === semesters[0].id
+                ? slider.promptAdd
+                : ""
+            }`}
+          >
+            <button
+              onClick={() => addSubject(semester.id)}
+              className={slider.add + " swiper-no-swiping"}
+              title={`Add a subject to ${semester.name}`}
+            >
+              <AddIcon fontSize="large" />
+            </button>
+          </div>
+        </SwiperSlide>
+      );
+    }
+
+    return slides;
+  });
+
   return (
     <div className={slider.container}>
       <Swiper
@@ -86,24 +161,23 @@ function PanelSlider() {
           />
         </SwiperSlide>
 
-        {subjectList.map((subject, index) => (
-          <SwiperSlide key={index} className={slider.swiperSlide}>
-            <Wamplifier subject={subject} onDelete={removeSubject} />
-          </SwiperSlide>
-        ))}
+        {semesterSlides}
 
         <SwiperSlide className={slider.swiperSlide}>
           <div
-            className={`${slider.addContainer} ${
-              subjectList.length > 0 ? "" : slider.promptAdd
-            }`}
+            className={slider.addContainer}
+            style={{ flexDirection: "column", gap: "1rem" }}
           >
             <button
-              onClick={() => newSubject()}
+              onClick={() => addSemester()}
               className={slider.add + " swiper-no-swiping"}
+              title="Add a semester"
             >
               <AddIcon fontSize="large" />
             </button>
+            <span style={{ color: "var(--n300)", fontWeight: 600 }}>
+              Add semester
+            </span>
           </div>
         </SwiperSlide>
       </Swiper>

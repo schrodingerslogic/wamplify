@@ -91,11 +91,19 @@ function Wamplifier({
         updateSubject({
           ...res.data,
           id: subject.id,
+          semesterId: subject.semesterId,
           targetScore: subject.targetScore,
         });
         setLoading(false);
       })
-      .catch((error) => console.error(error));
+      //.catch((error) => console.error(error));
+      .catch((error) => {
+        console.error(error);
+        setLoading(false);
+        document
+          .querySelector(`#SubjectSearch--${subject.id} input`)
+          ?.removeAttribute("disabled");
+      });
   };
 
   // updates assessment default input based on target and current assessment

@@ -48,7 +48,7 @@ function SubjectSearch({
 
   return (
     <label
-      className={`${search.search} ${focused ? search.focused : ""}`}
+      className={`${search.search} ${focused ? search.focused : ""} swiper-no-swiping`}
       id={`SubjectSearch--${id}`}
     >
       <input
@@ -79,11 +79,12 @@ function SubjectSearch({
         <ul className={search.results + " panel"}>
           {results?.map((result: SearchResult, index: number) => (
             <li
-              tabIndex={-1}
-              onClick={() => {
-                onResultClick(result);
-              }}
-              className={`${search.result} ${
+                tabIndex={-1}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onResultClick(result);
+                }}
+                className={`${search.result} ${
                 index === keyboardSelected ? search.keyboardSelected : ""
               }`}
               key={index}
