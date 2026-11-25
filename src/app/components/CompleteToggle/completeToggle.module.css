@@ -1,0 +1,33 @@
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 1.25rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--n600);
+  border-radius: 6px;
+  color: var(--n300);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+
+  transition:
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.toggle input {
+  accent-color: var(--a500);
+  width: 1.1rem;
+  height: 1.1rem;
+  cursor: pointer;
+}
+
+.toggle input:disabled {
+  cursor: default;
+}
+
+.done {
+  border-color: var(--a500);
+  color: var(--a300);
+}

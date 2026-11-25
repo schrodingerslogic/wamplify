@@ -21,6 +21,13 @@ import "swiper/css";
 import "swiper/css/free-mode";
 import LoadingBox from "../LoadingBox/LoadingBox";
 import { useAtom } from "jotai";
+import CompleteToggle from "../CompleteToggle/CompleteToggle";
+import {
+  getSubjectScore,
+  hasManualFinalMark,
+  isAutoComplete,
+  isSubjectComplete,
+} from "@/app/lib/functions/subjectCompletion";
 
 const sliderMarks = [
   {
@@ -96,7 +103,6 @@ function Wamplifier({
         });
         setLoading(false);
       })
-      //.catch((error) => console.error(error));
       .catch((error) => {
         console.error(error);
         setLoading(false);
@@ -131,6 +137,9 @@ function Wamplifier({
 
     return newSubject;
   };
+
+  const complete = isSubjectComplete(subject);
+  const auto = isAutoComplete(subject);
 
   return (
     <div
@@ -231,6 +240,15 @@ function Wamplifier({
                   )
                 )}
               </div>
+
+              <CompleteToggle
+                complete={complete}
+                auto={auto}
+                markEntered={hasManualFinalMark(subject)}
+                onChange={(checked) =>
+                  updateSubject({ ...subject, completed: checked })
+                }
+              />
             </div>
 
             {subject?.assessmentSets?.length > 1 && (
@@ -272,81 +290,128 @@ function Wamplifier({
       {!isLoading && subject.code != "" && (
         <div>
           <div className={wamplifier.controls}>
-            <div className={wamplifier.note}>
-              Set your target score. Your incomplete assessments will reflect
-              the required scores.
-            </div>
+            {complete ? (
+              <div className={wamplifier.note}>
+                {auto
+                  ? "Completed. This subject counts at the final mark calculated from your results."
+                  : "Completed. Enter your final mark below. It counts instead of a target score."}
+              </div>
+            ) : (
+              <>
+                <div className={wamplifier.note}>
+                  Set your target score. Your incomplete assessments will
+                  reflect the required scores.
+                </div>
 
-            <div className={wamplifier.slider}>
-              <Slider
-                aria-label="Target Score"
-                value={subject.targetScore}
-                step={1}
-                min={50}
-                max={getMaxScore(getActiveAssessments(subject))}
-                valueLabelDisplay="auto"
-                marks={sliderMarks}
-                className="slider swiper-no-swiping"
-                onChange={(e, value) => {
-                  if (Array.isArray(value)) {
-                    updateSubject(
-                      updateDesiredScores({
-                        ...subject,
-                        targetScore: value[0],
-                      })
-                    );
-                  } else {
-                    updateSubject(
-                      updateDesiredScores({ ...subject, targetScore: value })
-                    );
-                  }
-                }}
-              />
-            </div>
+                <div className={wamplifier.slider}>
+                  <Slider
+                    aria-label="Target Score"
+                    value={subject.targetScore}
+                    step={1}
+                    min={50}
+                    max={getMaxScore(getActiveAssessments(subject))}
+                    valueLabelDisplay="auto"
+                    marks={sliderMarks}
+                    className="slider swiper-no-swiping"
+                    onChange={(e, value) => {
+                      if (Array.isArray(value)) {
+                        updateSubject(
+                          updateDesiredScores({
+                            ...subject,
+                            targetScore: value[0],
+                          })
+                        );
+                      } else {
+                        updateSubject(
+                          updateDesiredScores({
+                            ...subject,
+                            targetScore: value,
+                          })
+                        );
+                      }
+                    }}
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           <div className={wamplifier.footer}>
             <div className={wamplifier.target}>
               <div className={wamplifier.targetText}>
-                Your target for <span>{subject.code}</span> is
+                {complete ? "Your final mark for" : "Your target for"}{" "}
+                <span>{subject.code}</span> is
               </div>
-              <input
-                value={subject.targetScore.toFixed(0)}
-                onChange={(e) => {
-                  if (
-                    !isNaN(Number(e.target.value)) &&
-                    Number(e.target.value) <= 100
-                  ) {
-                    let newTargetScore = parseInt(
-                      e.target.value == "" ? "0" : e.target.value
-                    );
-                    updateSubject(
-                      updateDesiredScores({
-                        ...subject,
-                        targetScore: newTargetScore,
-                      })
-                    );
+              {complete ? (
+                <input
+                  value={
+                    auto
+                      ? getSubjectScore(subject).toFixed(0)
+                      : subject.finalMark !== undefined
+                        ? String(subject.finalMark)
+                        : ""
                   }
-                }}
-                onKeyDown={(e) => e.key == "Enter" && e.currentTarget.blur()}
-                onBlur={(e) => {
-                  let newTargetScore = subject.targetScore;
-                  if (
-                    !isNaN(Number(e.target.value)) &&
-                    Number(e.target.value) <= 100
-                  ) {
-                    newTargetScore = parseInt(
-                      e.target.value == "" ? "0" : e.target.value
-                    );
-                    updateSubject(
-                      updateDesiredScores({
-                        ...subject,
-                        targetScore: newTargetScore,
-                      })
-                    );
+                  placeholder={
+                    auto ? undefined : subject.targetScore.toFixed(0)
                   }
-                }}
-              />
+                  readOnly={auto}
+                  onChange={(e) => {
+                    if (auto) return;
+                    const value = e.target.value.trim();
+                    if (value === "") {
+                      updateSubject({ ...subject, finalMark: undefined });
+                    } else if (
+                      !isNaN(Number(value)) &&
+                      Number(value) >= 0 &&
+                      Number(value) <= 100
+                    ) {
+                      updateSubject({
+                        ...subject,
+                        finalMark: parseInt(value),
+                      });
+                    }
+                  }}
+                  onKeyDown={(e) => e.key == "Enter" && e.currentTarget.blur()}
+                />
+              ) : (
+                <input
+                  value={subject.targetScore.toFixed(0)}
+                  onChange={(e) => {
+                    if (
+                      !isNaN(Number(e.target.value)) &&
+                      Number(e.target.value) <= 100
+                    ) {
+                      let newTargetScore = parseInt(
+                        e.target.value == "" ? "0" : e.target.value
+                      );
+                      updateSubject(
+                        updateDesiredScores({
+                          ...subject,
+                          targetScore: newTargetScore,
+                        })
+                      );
+                    }
+                  }}
+                  onKeyDown={(e) => e.key == "Enter" && e.currentTarget.blur()}
+                  onBlur={(e) => {
+                    let newTargetScore = subject.targetScore;
+                    if (
+                      !isNaN(Number(e.target.value)) &&
+                      Number(e.target.value) <= 100
+                    ) {
+                      newTargetScore = parseInt(
+                        e.target.value == "" ? "0" : e.target.value
+                      );
+                      updateSubject(
+                        updateDesiredScores({
+                          ...subject,
+                          targetScore: newTargetScore,
+                        })
+                      );
+                    }
+                  }}
+                />
+              )}
             </div>
           </div>
         </div>

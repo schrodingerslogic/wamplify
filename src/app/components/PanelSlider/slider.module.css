@@ -92,3 +92,24 @@
     padding: 0 0.5rem 1rem;
   }
 }
+
+/* PC and tablet: Wamometer stays put on the left, only the subjects scroll */
+.withSidebar {
+  display: flex;
+}
+
+.sidebar {
+  flex: 0 0 auto;
+  height: 100%;
+  padding: 0.5rem 0 1rem 1rem;
+  box-sizing: border-box;
+}
+
+.sidebar > * {
+  height: 100%;
+}
+
+.withSidebar .swiper {
+  flex: 1 1 0;
+  min-width: 0;
+}

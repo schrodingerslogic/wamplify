@@ -6,16 +6,24 @@ import { isValidUnits, isValidWam } from "@/app/lib/functions/inputValidation";
 import { currentWam, unitsCompleted } from "@/app/types/store";
 import { useAtom } from "jotai/react";
 
+const formatUnits = (units: number) => String(Number(units.toFixed(2)));
+
 function Wamometer({
   calcPredictedWam,
+  calcCompleted,
   creditsInProgress,
 }: {
   calcPredictedWam: Function;
+  calcCompleted: Function;
   creditsInProgress: number;
 }) {
   const [currWam, setCurrWam] = useAtom(currentWam);
   const [units, setUnits] = useAtom(unitsCompleted);
-  const active = parseInt(currWam) > 0 && parseInt(units) > 0;
+  const active = parseFloat(calcPredictedWam(currWam, units)) > 0;
+
+  // everything finished so far: what you typed + subjects completed in the app
+  const completed: { credits: number; units: number; wam: number } =
+    calcCompleted(currWam, units);
 
   function handleWamChange(e: React.SyntheticEvent) {
     let input = e.target as HTMLInputElement;
@@ -28,7 +36,13 @@ function Wamometer({
   }
 
   function getWamDiff() {
-    return (calcPredictedWam(currWam, units) - parseFloat(currWam)).toFixed(2);
+    // change compared with your WAM so far
+    const diff =
+      completed.credits > 0
+        ? calcPredictedWam(currWam, units) - completed.wam
+        : 0;
+    // round first so float noise doesn't show up as "-0.00"
+    return (Math.round(diff * 100) / 100).toFixed(2);
   }
 
   function getWamStateName() {
@@ -75,36 +89,45 @@ function Wamometer({
               What does this mean? <HelpIcon />
             </div>
             <div>
-              Enter your current WAM and the number of subjects you have
-              <strong> already completed</strong>. 25-credit subjects count as
-              two subjects!
+              Enter the WAM and number of subjects you finished
+              <strong> before using Wamplify</strong> (ones that aren&apos;t in
+              a panel). Subjects you complete here are added to the
+              <strong> Current</strong> row automatically. 25-credit subjects
+              count as two subjects!
             </div>
           </div>
         </div>
 
-        <div className={wamometer.inputs}>
-          <div>
-            <label>Current WAM</label>
-            <input
-              value={currWam}
-              onChange={(e) => handleWamChange(e)}
-              className={getWamStateName()}
-            />
-          </div>
+        <div className={wamometer.table}>
+          <span />
+          <span className={wamometer.colHead}>WAM</span>
+          <span className={wamometer.colHead}>Subjects</span>
 
-          <div>
-            <label>Subjects</label>
-            <input
-              value={units}
-              onChange={(e) => handleCreditChange(e)}
-              className={getUnitsStateName()}
-            />
-          </div>
+          <span className={wamometer.rowLabel}>Before Wamplify</span>
+          <input
+            aria-label="WAM before Wamplify"
+            value={currWam}
+            onChange={(e) => handleWamChange(e)}
+            className={getWamStateName()}
+          />
+          <input
+            aria-label="Subjects completed before Wamplify"
+            value={units}
+            onChange={(e) => handleCreditChange(e)}
+            className={getUnitsStateName()}
+          />
+
+          <span className={wamometer.rowLabel}>Current</span>
+          <output className={wamometer.readout} aria-label="Current WAM">
+            {completed.credits > 0 ? completed.wam.toFixed(2) : "–"}
+          </output>
+          <output className={wamometer.readout} aria-label="Current subjects">
+            {completed.credits > 0 ? formatUnits(completed.units) : "–"}
+          </output>
         </div>
 
         <p className={wamometer.points}>
-          {isValidUnits(units) ? parseInt(units) * 12.5 : 0} credits complete,{" "}
-          {creditsInProgress} in progress.
+          {completed.credits} credits complete, {creditsInProgress} in progress.
         </p>
       </div>
     </div>

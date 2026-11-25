@@ -24,7 +24,10 @@ export interface Subject {
   assessments?: Assessment[]; // for backwards compatibility
   targetScore: number;
   semesterId?: string; // which semester section this subject lives in
+  completed?: boolean; // manually ticked as completed
+  finalMark?: number; // final mark typed in when ticked as completed by hand
 }
+
 export interface Semester {
   id: string;
   name: string;

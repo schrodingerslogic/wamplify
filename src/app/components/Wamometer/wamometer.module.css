@@ -44,24 +44,46 @@
   font-size: 0.875rem;
 }
 
-.inputs {
+.table {
   color: var(--n100);
 
-  display: flex;
-  gap: 0.5rem;
+  display: grid;
+  grid-template-columns: 4.6rem minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.35rem 0.5rem;
+  align-items: center;
 }
 
-.inputs > * {
-  flex-grow: 2;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+.colHead {
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--n500);
+  text-transform: uppercase;
+  text-align: center;
 }
 
-.inputs input {
+.rowLabel {
+  font-size: 0.75rem;
+  line-height: 1.1;
+  color: var(--n300);
+}
+
+.table input {
   width: 100%;
+  text-align: center;
+  padding: 0.3rem 0.25rem;
   color: var(--n300);
   font-weight: 200;
+}
+
+.readout {
+  display: block;
+  text-align: center;
+  padding: 0.3rem 0.25rem;
+  border-radius: 2px;
+  background: var(--a900);
+  border: 1px solid var(--a700);
+  color: var(--a300);
+  font-weight: 700;
 }
 
 .invalid {
