@@ -2,6 +2,9 @@ import axios, { AxiosError } from "axios";
 import { JSDOM } from "jsdom";
 import { Assessment, AssessmentSet, SearchResult, Subject } from "../../types/types";
 import { NextResponse } from "next/server";
+import fs from "fs";
+import path from "path";
+import bundledCache from "@/app/lib/handbookCache.json";
 
 export async function POST(req: Request) {
   const request = await req.json();
@@ -9,21 +12,33 @@ export async function POST(req: Request) {
   const result = await getSubjectInfo(request);
 
   if (!result.subject) {
-    return NextResponse.json({ error: result.error }, { status: result.status });
+    return NextResponse.json({ error: result.error, debug: result.debug }, { status: result.status });
   }
 
   return NextResponse.json(result.subject);
 }
 
-async function fetchSubjectPage(url: string): Promise<Document | null> {
+type FetchedPage = { document: Document | null; debug: string; blocked: boolean };
+
+async function fetchSubjectPage(url: string): Promise<FetchedPage> {
   try {
     const res = await axios.get(url, { timeout: 15000 });
-    return new JSDOM(res.data).window.document;
+    const html = String(res.data);
+    const document = new JSDOM(html).window.document;
+    // the handbook sits behind Imperva Incapsula, which answers servers it doesn't trust with a
+    // challenge page (HTTP 200, no subject content)
+    const blocked = html.includes("_Incapsula_Resource");
+    const debug = `HTTP ${res.status}, ${html.length} bytes, title "${document.title.trim().slice(0, 60)}"${
+      blocked ? ", Incapsula bot-protection page" : ""
+    }`;
+    if (blocked) console.error(`Handbook blocked this server (Incapsula): ${url}`);
+    return { document, debug, blocked };
   } catch (error) {
     // look for this line in Vercel > Logs: a status like 403/404, or a code like ECONNABORTED
     const e = error as AxiosError;
-    console.error(`Handbook request failed (${e.response?.status ?? e.code}): ${url}`);
-    return null;
+    const reason = e.response?.status ?? e.code;
+    console.error(`Handbook request failed (${reason}): ${url}`);
+    return { document: null, debug: `request failed (${reason})`, blocked: false };
   }
 }
 
@@ -96,10 +111,38 @@ function parseTitle(title: Element): string {
   return sentences[0];
 }
 
-async function getSubjectInfo(
-  subject: SearchResult
-): Promise<{ subject?: Subject; error?: string; status?: number }> {
-  const year = new Date().getFullYear();
+type LookupResult = { subject?: Subject; error?: string; status?: number; debug?: string };
+
+// Saved subject data. On your own computer (npm run dev) every subject that loads from the handbook is
+// saved to this file; once it's committed, the deployed site can serve those subjects without the handbook.
+const CACHE_PATH =
+  process.env.HANDBOOK_CACHE_PATH ?? path.join(process.cwd(), "src/app/lib/handbookCache.json");
+const isDev = () => process.env.NODE_ENV === "development";
+
+function readCache(): Record<string, Subject> {
+  if (isDev()) {
+    try {
+      return JSON.parse(fs.readFileSync(CACHE_PATH, "utf8"));
+    } catch {
+      return {};
+    }
+  }
+  return bundledCache as unknown as Record<string, Subject>;
+}
+
+function saveToCache(key: string, subject: Subject) {
+  if (!isDev()) return;
+  try {
+    const cache = readCache();
+    cache[key] = subject;
+    const sorted = Object.fromEntries(Object.entries(cache).sort(([a], [b]) => a.localeCompare(b)));
+    fs.writeFileSync(CACHE_PATH, JSON.stringify(sorted, null, 2) + "\n");
+  } catch (error) {
+    console.error("Couldn't save subject to handbookCache.json", error);
+  }
+}
+
+async function fetchFromHandbook(subject: SearchResult, year: number): Promise<LookupResult> {
   const assessmentUrl = `https://handbook.unimelb.edu.au/${year}/subjects/${subject.code}/assessment`;
   const overviewUrl = `https://handbook.unimelb.edu.au/${year}/subjects/${subject.code}`;
   const [subjectOverview, assessmentPage] = await Promise.all([
@@ -107,22 +150,32 @@ async function getSubjectInfo(
     fetchSubjectPage(assessmentUrl),
   ]);
 
-  if (!assessmentPage) {
+  if (assessmentPage.blocked) {
     return {
-      status: 502,
-      error: `Couldn't reach the handbook to load ${subject.code}. Please try again.`,
+      status: 503,
+      error: `The Unimelb handbook blocks live lookups from this server, and ${subject.code} isn't saved on this site yet.`,
+      debug: assessmentPage.debug,
     };
   }
 
-  const assessmentSets = extractData(assessmentPage).filter((set) => set.assessments.length > 0);
+  if (!assessmentPage.document) {
+    return {
+      status: 502,
+      error: `Couldn't reach the handbook to load ${subject.code}. Please try again.`,
+      debug: assessmentPage.debug,
+    };
+  }
+
+  const assessmentSets = extractData(assessmentPage.document).filter((set) => set.assessments.length > 0);
   if (assessmentSets.length === 0) {
     return {
       status: 404,
       error: `No assessments are listed for ${subject.code} in the ${year} handbook.`,
+      debug: assessmentPage.debug,
     };
   }
 
-  const credits = subjectOverview ? extractCredits(subjectOverview) : 12.5;
+  const credits = subjectOverview.document ? extractCredits(subjectOverview.document) : 12.5;
   return {
     subject: {
       name: subject.name,
@@ -133,4 +186,27 @@ async function getSubjectInfo(
       targetScore: 50,
     },
   };
+}
+
+async function getSubjectInfo(subject: SearchResult): Promise<LookupResult> {
+  const year = new Date().getFullYear();
+  const key = `${year}/${subject.code.toUpperCase()}`;
+
+  // deployed site: saved data first (the handbook blocks servers)
+  if (!isDev()) {
+    const saved = readCache()[key];
+    if (saved) return { subject: saved };
+  }
+
+  const live = await fetchFromHandbook(subject, year);
+  if (live.subject) {
+    saveToCache(key, live.subject);
+    return live;
+  }
+
+  // on your computer, fall back to saved data if the handbook can't be reached
+  const saved = readCache()[key];
+  if (saved) return { subject: saved };
+
+  return live;
 }
